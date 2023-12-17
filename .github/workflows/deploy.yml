@@ -1,0 +1,49 @@
+name: Deploy to Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      # checkout
+      - name: Checkout
+        uses: actions/checkout@v4
+      # setup node
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/iron
+      # build the optimistik library
+      - name: Install dependencies
+        run: npm ci
+      - name: Build
+        run: npm run build
+      # build the demo application
+      - name: Install dependencies
+        run: npm ci
+        working-directory: ./demo
+      - name: Build
+        run: npm run build
+        working-directory: ./demo
+      # setup pages and deploy the demo app
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./demo/dist
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v4
