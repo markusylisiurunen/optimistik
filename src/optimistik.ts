@@ -46,6 +46,7 @@ class Optimistik {
   private _schemaVersion: string;
   private _libraryVersion: string = "1";
   private _state: OptimistikState = "initializing";
+  private _closed = false;
   private _clientID = crypto.randomUUID();
   private _clientGroupID!: string;
 
@@ -128,8 +129,16 @@ class Optimistik {
     // start the triggers
     this._syncServerPullTrigger.start();
     this._syncServerPushTrigger.start();
-    // mark the instance as ready
-    this._state = "ready";
+    // short-circuit if the instance was closed during init
+    if (this._closed) {
+      // update the state
+      this._state = "closed";
+      // stop the triggers
+      this._syncServerPullTrigger.stop();
+      this._syncServerPushTrigger.stop();
+    }
+    // otherwise, mark the instance as ready
+    if (!this._closed) this._state = "ready";
   }
 
   // public methods
@@ -140,7 +149,11 @@ class Optimistik {
   }
 
   async close(): Promise<void> {
-    this._assertOperational();
+    this._closed = true;
+    if (!this._isOperational) {
+      // NOTE: this will be handled after init has finished
+      return;
+    }
     this._logger.debug("close was called");
     // update the state
     this._state = "closed";
