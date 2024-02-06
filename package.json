@@ -25,6 +25,7 @@
     "build": "tsup src/index.ts",
     "dev": "tsup src/index.ts --watch",
     "format": "prettier --write .",
+    "release": "npm run build && npm version patch && git push && git push --tags && npm publish",
     "test": "jest"
   },
   "dependencies": {
