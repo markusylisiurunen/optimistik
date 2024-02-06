@@ -15,6 +15,7 @@ import {
   IntervalTrigger,
   NoTrigger,
   Trigger,
+  TriggerableTrigger,
   VisibilityChangeTrigger,
 } from "./trigger";
 import { milliseconds, seconds } from "./util/duration";
@@ -56,6 +57,7 @@ class Optimistik {
   private _syncServer: SyncServer;
   private _syncServerPullTrigger: Trigger;
   private _syncServerPushTrigger: Trigger;
+  private _syncServerPushTriggerer?: TriggerableTrigger;
 
   // sync state -related properties
   private _syncStateCookie: JSONValue;
@@ -83,18 +85,28 @@ class Optimistik {
     this._syncServerPullTrigger = new NoTrigger();
     if (opts?.pullInterval !== null) {
       const interval = opts?.pullInterval ? milliseconds(opts.pullInterval) : seconds(60);
-      this._syncServerPullTrigger = new AggregateTrigger([
-        new IntervalTrigger(interval),
-        new VisibilityChangeTrigger(["visible"]),
-      ]);
+      const visibilityStates: DocumentVisibilityState[] = ["visible"];
+      this._syncServerPullTrigger = new AggregateTrigger(() => this._pull(), {
+        triggers: [
+          (trigger) => new IntervalTrigger(trigger, { interval }),
+          (trigger) => new VisibilityChangeTrigger(trigger, { visibilityStates }),
+        ],
+      });
     }
     this._syncServerPushTrigger = new NoTrigger();
     if (opts?.pushInterval !== null) {
-      const interval = opts?.pushInterval ? milliseconds(opts.pushInterval) : milliseconds(250);
-      this._syncServerPushTrigger = new AggregateTrigger([
-        new IntervalTrigger(interval),
-        new VisibilityChangeTrigger(["hidden"]), // TODO: does this actually work?
-      ]);
+      const interval = opts?.pushInterval ? milliseconds(opts.pushInterval) : seconds(10);
+      const visibilityStates: DocumentVisibilityState[] = ["visible"];
+      this._syncServerPushTrigger = new AggregateTrigger(() => this._push(), {
+        triggers: [
+          (trigger) => new IntervalTrigger(trigger, { interval }),
+          (trigger) => new VisibilityChangeTrigger(trigger, { visibilityStates }),
+          (trigger) => {
+            this._syncServerPushTriggerer = new TriggerableTrigger(trigger);
+            return this._syncServerPushTriggerer;
+          },
+        ],
+      });
     }
     // trigger the init
     void this._init();
@@ -114,9 +126,7 @@ class Optimistik {
       this._syncStateCookie = storeInitResult.cookie;
     }
     // start the triggers
-    this._syncServerPullTrigger.on(() => this._pull());
     this._syncServerPullTrigger.start();
-    this._syncServerPushTrigger.on(() => this._push());
     this._syncServerPushTrigger.start();
     // mark the instance as ready
     this._state = "ready";
@@ -135,8 +145,8 @@ class Optimistik {
     // update the state
     this._state = "closed";
     // stop the triggers
-    this._syncServerPullTrigger.dispose();
-    this._syncServerPushTrigger.dispose();
+    this._syncServerPullTrigger.stop();
+    this._syncServerPushTrigger.stop();
   }
 
   async pull(): Promise<void> {
@@ -237,6 +247,8 @@ class Optimistik {
     this._pendingMutationTransactions.set(id, tx);
     // apply the mutation locally
     await this._store.write(tx);
+    // trigger a push
+    this._syncServerPushTriggerer?.trigger();
   }
 
   // private methods

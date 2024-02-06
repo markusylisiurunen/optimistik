@@ -1,111 +1,120 @@
-import mitt, { Emitter } from "mitt";
 import { Duration } from "./util/duration";
 
 interface Trigger {
-  dispose(): void;
   start(): void;
-  on(fn: () => void): () => void;
+  stop(): void;
 }
 
+// a trigger that never triggers
+// ---
 class NoTrigger implements Trigger {
-  dispose() {
-    return;
-  }
-
-  start() {
-    return;
-  }
-
-  on() {
-    return () => {};
-  }
+  start() {}
+  stop() {}
 }
 
-class IntervalTrigger implements Trigger {
-  private _events: Emitter<{ trigger: unknown }>;
-  private _interval: Duration;
-  private _timeout?: ReturnType<typeof setTimeout>;
+// a trigger that triggers when it is triggered
+// ---
+class TriggerableTrigger implements Trigger {
+  private _trigger: () => void;
+  private _started = false;
 
-  constructor(interval: Duration) {
-    this._events = mitt();
-    this._interval = interval;
-  }
-
-  dispose() {
-    this._events.all.clear();
-    if (this._timeout) clearTimeout(this._timeout);
-  }
-
-  start() {
-    this._next();
-  }
-
-  on(fn: () => void) {
-    this._events.on("trigger", fn);
-    return () => this._events.off("trigger", fn);
-  }
-
-  private _next(): void {
-    this._timeout = setTimeout(() => {
-      this._events.emit("trigger");
-      this._next();
-    }, this._interval);
-  }
-}
-
-class VisibilityChangeTrigger implements Trigger {
-  private _events: Emitter<{ trigger: unknown }>;
-  private _started: boolean = false;
-
-  constructor(visibilityStates: DocumentVisibilityState[]) {
-    this._events = mitt();
-    window.addEventListener("visibilitychange", () => {
-      if (this._started && visibilityStates.includes(document.visibilityState)) {
-        this._events.emit("trigger");
-      }
-    });
-  }
-
-  dispose() {
-    this._events.all.clear();
-    this._started = false;
+  constructor(trigger: () => void) {
+    this._trigger = trigger;
   }
 
   start() {
     this._started = true;
   }
 
-  on(fn: () => void) {
-    this._events.on("trigger", fn);
-    return () => this._events.off("trigger", fn);
+  stop() {
+    this._started = false;
+  }
+
+  trigger() {
+    if (!this._started) return;
+    this._trigger();
   }
 }
 
-class AggregateTrigger implements Trigger {
-  private _events: Emitter<{ trigger: unknown }>;
-  private _triggers: Trigger[];
+// a trigger that triggers every interval
+// ---
+class IntervalTrigger implements Trigger {
+  private _trigger: () => void;
+  private _interval: Duration;
+  private _timeout?: ReturnType<typeof setTimeout>;
 
-  constructor(triggers: Trigger[]) {
-    this._events = mitt();
-    this._triggers = triggers;
-    for (const trigger of this._triggers) {
-      trigger.on(() => this._events.emit("trigger"));
-    }
+  constructor(trigger: () => void, opts: { interval: Duration }) {
+    this._trigger = trigger;
+    this._interval = opts.interval;
   }
 
-  dispose() {
-    this._triggers.forEach((trigger) => trigger.dispose());
-    this._events.all.clear();
+  start() {
+    this._next();
+  }
+
+  stop() {
+    if (!this._timeout) return;
+    clearTimeout(this._timeout);
+  }
+
+  private _next() {
+    this._timeout = setTimeout(() => {
+      this._trigger();
+      this._next();
+    }, this._interval);
+  }
+}
+
+// a trigger that triggers when the document visibility changes
+// ---
+class VisibilityChangeTrigger implements Trigger {
+  private _trigger: () => void;
+  private _visibilityStates: DocumentVisibilityState[];
+
+  constructor(trigger: () => void, opts: { visibilityStates: DocumentVisibilityState[] }) {
+    this._trigger = trigger;
+    this._visibilityStates = opts.visibilityStates;
+  }
+
+  start() {
+    window.addEventListener("visibilitychange", this._onVisibilityChange);
+  }
+
+  stop() {
+    window.removeEventListener("visibilitychange", this._onVisibilityChange);
+  }
+
+  private _onVisibilityChange() {
+    if (!this._visibilityStates.includes(document.visibilityState)) return;
+    this._trigger();
+  }
+}
+
+// a trigger that triggers when any of the triggers it aggregates triggers
+// ---
+class AggregateTrigger implements Trigger {
+  private _trigger: () => void;
+  private _triggers: Trigger[];
+
+  constructor(trigger: () => void, opts: { triggers: ((trigger: () => void) => Trigger)[] }) {
+    this._trigger = trigger;
+    this._triggers = opts.triggers.map((trigger) => trigger(this._trigger));
   }
 
   start() {
     this._triggers.forEach((trigger) => trigger.start());
   }
 
-  on(fn: () => void) {
-    this._events.on("trigger", fn);
-    return () => this._events.off("trigger", fn);
+  stop() {
+    this._triggers.forEach((trigger) => trigger.stop());
   }
 }
 
-export { AggregateTrigger, IntervalTrigger, NoTrigger, VisibilityChangeTrigger, type Trigger };
+export {
+  AggregateTrigger,
+  IntervalTrigger,
+  NoTrigger,
+  TriggerableTrigger,
+  VisibilityChangeTrigger,
+  type Trigger,
+};
