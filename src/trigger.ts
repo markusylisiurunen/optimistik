@@ -69,23 +69,23 @@ class IntervalTrigger implements Trigger {
 // ---
 class VisibilityChangeTrigger implements Trigger {
   private _trigger: () => void;
-  private _visibilityStates: DocumentVisibilityState[];
+  private _listener: () => void;
 
   constructor(trigger: () => void, opts: { visibilityStates: DocumentVisibilityState[] }) {
     this._trigger = trigger;
-    this._visibilityStates = opts.visibilityStates;
+    this._listener = this._onVisibilityChange.bind(this, opts.visibilityStates);
   }
 
   start() {
-    window.addEventListener("visibilitychange", this._onVisibilityChange);
+    window.addEventListener("visibilitychange", this._listener);
   }
 
   stop() {
-    window.removeEventListener("visibilitychange", this._onVisibilityChange);
+    window.removeEventListener("visibilitychange", this._listener);
   }
 
-  private _onVisibilityChange() {
-    if (!this._visibilityStates.includes(document.visibilityState)) return;
+  private _onVisibilityChange(states: DocumentVisibilityState[]) {
+    if (!states.includes(document.visibilityState)) return;
     this._trigger();
   }
 }
