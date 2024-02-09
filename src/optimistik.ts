@@ -343,11 +343,6 @@ class Optimistik {
           this._pendingMutationTransactions.delete(id);
         }
       }
-      // resolve the committed resolvables
-      for (const id of this._pendingMutationResolvables.keys()) {
-        if (id > this._syncStateLastRemoteMutationID) continue;
-        this._pendingMutationResolvables.get(id)?.committed.resolve();
-      }
       // rebase the local store
       await this._store.rebase(
         this._syncStateCookie,
@@ -374,6 +369,13 @@ class Optimistik {
           }
         },
       );
+      // resolve the committed resolvables
+      for (const id of this._pendingMutationResolvables.keys()) {
+        if (id > this._syncStateLastRemoteMutationID) continue;
+        this._pendingMutationResolvables.get(id)?.committed.resolve();
+        // FIXME: is it safe to delete the resolvable here?
+        this._pendingMutationResolvables.delete(id);
+      }
     });
   }
 
