@@ -21,6 +21,7 @@ import {
 import { milliseconds, seconds } from "./util/duration";
 import { JSONValue } from "./util/json";
 import { Logger } from "./util/logger";
+import { Resolvable, resolvable } from "./util/resolvable";
 
 type OptimistikState = "initializing" | "ready" | "closed";
 
@@ -68,6 +69,7 @@ class Optimistik {
   // pending mutations
   private _pendingMutations: PendingMutation[] = [];
   private _pendingMutationTransactions: Map<number, MutationTx> = new Map();
+  private _pendingMutationResolvables: Map<number, Resolvable<void>> = new Map();
 
   constructor(opts: OptimistikOptions) {
     this._name = opts.name;
@@ -243,12 +245,15 @@ class Optimistik {
     return { stream, unsubscribe: () => (unsubscribed = true) };
   }
 
-  send(mutation: Mutation<undefined>): Promise<void>;
-  send<Args extends JSONValue>(mutation: Mutation<Args>, args: Args): Promise<void>;
+  send(mutation: Mutation<undefined>): Promise<{ sent: Promise<void> }>;
+  send<Args extends JSONValue>(
+    mutation: Mutation<Args>,
+    args: Args,
+  ): Promise<{ sent: Promise<void> }>;
   async send<Args extends JSONValue>(
     mutation: Mutation<undefined> | Mutation<Args>,
     args?: Args,
-  ): Promise<void> {
+  ): Promise<{ sent: Promise<void> }> {
     this._assertOperational();
     this._logger.debug({ name: mutation.name, args: args ?? {} }, "send was called");
     const tx = (mutation as Mutation<any>)(args);
@@ -258,10 +263,13 @@ class Optimistik {
     // queue the mutation
     this._pendingMutations.push({ clientID: this._clientID, id, name: mutation.name, args });
     this._pendingMutationTransactions.set(id, tx);
+    const _resolvable = resolvable<void>();
+    this._pendingMutationResolvables.set(id, _resolvable);
     // apply the mutation locally
     await this._store.write(tx);
     // trigger a push
     this._syncServerPushTriggerer?.trigger();
+    return { sent: _resolvable.promise };
   }
 
   // private methods
@@ -370,6 +378,12 @@ class Optimistik {
         mutations: batch,
       });
       this._pendingMutations = this._pendingMutations.slice(batch.length);
+      batch.forEach((mutation) => {
+        const _resolvable = this._pendingMutationResolvables.get(mutation.id);
+        if (!_resolvable) return;
+        this._pendingMutationResolvables.delete(mutation.id);
+        _resolvable.resolve();
+      });
     });
   }
 }
