@@ -5,6 +5,7 @@ import { ReadTx } from "../store";
 import { JSONValue } from "../util/json";
 
 type UseQueryOptions = {
+  deps?: React.DependencyList | undefined;
   isEqual?: (a: JSONValue, b: JSONValue) => boolean;
 };
 function useQuery<T extends JSONValue>(
@@ -14,20 +15,23 @@ function useQuery<T extends JSONValue>(
 ): { loading: boolean; data: T | undefined } {
   const [status, setStatus] = useState<"loading" | "ready">("loading");
   const [value, setValue] = useState<T>();
-  useEffect(() => {
-    let current = value;
-    const { stream, unsubscribe } = optimistik.subscribe(query);
-    (async () => {
-      for await (const next of stream) {
-        const isEqual = opts?.isEqual ?? _isEqual;
-        if (status !== "loading" && isEqual(current, next)) continue;
-        current = next;
-        setValue(next);
-        setStatus("ready");
-      }
-    })();
-    return () => unsubscribe();
-  }, []);
+  useEffect(
+    () => {
+      let current = value;
+      const { stream, unsubscribe } = optimistik.subscribe(query);
+      (async () => {
+        for await (const next of stream) {
+          const isEqual = opts?.isEqual ?? _isEqual;
+          if (status !== "loading" && isEqual(current, next)) continue;
+          current = next;
+          setValue(next);
+          setStatus("ready");
+        }
+      })();
+      return () => unsubscribe();
+    },
+    opts?.deps ?? [],
+  );
   return { loading: status === "loading", data: value };
 }
 
