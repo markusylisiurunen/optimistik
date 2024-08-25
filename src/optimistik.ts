@@ -149,6 +149,10 @@ class Optimistik {
   // public methods
   // ---
 
+  get id(): string {
+    return this._clientID;
+  }
+
   get state(): OptimistikState {
     return this._state;
   }
